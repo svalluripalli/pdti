@@ -265,7 +265,7 @@
                     <plugin>
                         <groupId>com.github.redfish4ktc.soapui</groupId>
                         <artifactId>maven-soapui-extension-plugin</artifactId>
-                        <executions>
+                        <executions>                           
                             <execution>
                                 <id>test-hpdplus</id>
                                 <phase>integration-test</phase>

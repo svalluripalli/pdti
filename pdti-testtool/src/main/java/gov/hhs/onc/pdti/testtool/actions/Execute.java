@@ -2,6 +2,7 @@ package gov.hhs.onc.pdti.testtool.actions;
 
 
 import gov.hhs.onc.pdti.testtool.DirectoryTypes;
+import gov.hhs.onc.pdti.testtool.TestToolPropertiesReader;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -37,12 +38,12 @@ import com.opensymphony.xwork2.validator.annotations.ValidatorType;
 @ParentPackage("json-default")
 public class Execute extends ActionSupport {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(Execute.class);
+    private Logger log = LoggerFactory.getLogger(Execute.class);
     private static final String WSDL_URL_ATTRIBUTE_PARAM_NAME = "wsdlUrl";
     private static final String BASE_DN_STRING_PARAM_NAME = "baseDn";
     private static final String DIRECTORY_TYPE_PARAM_NAME = "typeOfDirectory";
     private static final String REQUIRED_FIELD_MESSAGE = "This field is required.";
-    private static final String MSPD_SOAPUI_PROJECT_FILE = "soapui-project_hpdplus.xml";
+    private static final String MSPD_SOAPUI_PROJECT_FILE = TestToolPropertiesReader.getPropertyValue("mspd_soapui_project_file");
     private static final String IHE_SOAPUI_PROJECT_FILE = "soapui-project.xml";
     private static final String URL_PROPERTY = "project.test.server.wsdl.url";
     private static final String BASE_DN_PROPERTY = "project.test.server.dsml.dn.base";
@@ -58,8 +59,8 @@ public class Execute extends ActionSupport {
             "Unable to create SoapUI WSDL project from SoapUI project file: ";
     private static final Map<WsdlProject, Map<String, Map<String, String>>> PROJECTS_MAP =
             new HashMap<WsdlProject, Map<String, Map<String, String>>>();
-    private static final WsdlProject IHE_WSDL_PROJECT = getWsdlProject(IHE_SOAPUI_PROJECT_FILE);
-    private static final WsdlProject MSPD_WSDL_PROJECT = getWsdlProject(MSPD_SOAPUI_PROJECT_FILE);
+    private WsdlProject IHE_WSDL_PROJECT = getWsdlProject(IHE_SOAPUI_PROJECT_FILE);
+    private WsdlProject MSPD_WSDL_PROJECT = getWsdlProject(MSPD_SOAPUI_PROJECT_FILE);
     private static final String SETTINGS_FILE_NAME = "soapui-settings.xml";
 
     private WsdlProject wsdlProject;
@@ -69,14 +70,15 @@ public class Execute extends ActionSupport {
     private Map<String, Object> testResultsJson = new HashMap<String, Object>();
     private String status = STARTING;
     private String typeOfDirectory;
-    
+
     private static String getFileUrl(final String fileName) {
         return Execute.class.getClassLoader().getResource(fileName).toString();
     }
-    
-    private static WsdlProject getWsdlProject(final String projectFile) {
+
+    private  WsdlProject getWsdlProject(final String projectFile) {
         WsdlProject wsdlProject = null;
         try {
+			log.info("Careating Wsdl project with file..."+projectFile);
             wsdlProject = new WsdlProject(getFileUrl(projectFile));
             XmlBeansSettingsImpl xmlBeansSettingsImpl = wsdlProject.getSettings();
             xmlBeansSettingsImpl.setString(HttpSettings.CLOSE_CONNECTIONS, Boolean.TRUE.toString());
@@ -86,12 +88,13 @@ public class Execute extends ActionSupport {
             xmlBeansSettingsImpl.setString(WsdlSettings.PRETTY_PRINT_PROJECT_FILES, Boolean.TRUE.toString());
             xmlBeansSettingsImpl.setString(WsdlSettings.PRETTY_PRINT_RESPONSE_MESSAGES, Boolean.TRUE.toString());
             buildTestcaseDescriptionsMap(wsdlProject);
+            log.info("Wsdl project excution completed!");
         } catch (XmlException | IOException | SoapUIException e) {
-            LOGGER.error(SOAPUI_PROJECT_FILE_ERROR_FRAGMENT + projectFile, e);
+            log.error(SOAPUI_PROJECT_FILE_ERROR_FRAGMENT + projectFile, e);
         }
         return wsdlProject;
     }
-    
+
     private static void buildTestcaseDescriptionsMap(final WsdlProject wsdlProject) {
         Map<String, Map<String, String>> testSuiteToTestCasesDescriptionsMap =
                 new HashMap<String,Map<String, String>>();
@@ -113,15 +116,17 @@ public class Execute extends ActionSupport {
             @RequiredFieldValidator(type = ValidatorType.SIMPLE, fieldName = DIRECTORY_TYPE_PARAM_NAME, message = REQUIRED_FIELD_MESSAGE) })
     @Action(value="testResultsJson", results = { @Result(name="success", type="json") })
     public String execute() {
+    	log.info("Execute method called...");
         if (typeOfDirectory.equals(DirectoryTypes.IHE.toString())) {
             wsdlProject = IHE_WSDL_PROJECT;
         } else if (typeOfDirectory.equals(DirectoryTypes.MSPD.toString())) {
             wsdlProject = MSPD_WSDL_PROJECT;
         } else {
             String errorMessage = typeOfDirectory + BAD_DIRECTORY_TYPE_MESSAGE_FRAGMENT;
-            LOGGER.error(errorMessage);
+            log.error(errorMessage);
             return ERROR;
         }
+
         wsdlProject.setPropertyValue(URL_PROPERTY, getWsdlUrl());
         wsdlProject.setPropertyValue(BASE_DN_PROPERTY, getBaseDn());
         executeTests();
@@ -129,12 +134,15 @@ public class Execute extends ActionSupport {
     }
 
     private void executeTests() {
+    	log.info("ExecuteTests method called...");
         List<TestSuite> testSuites = wsdlProject.getTestSuiteList();
         int numberOfTestCases = countTestCases(testSuites);
         int testCaseCounter = 0;
         for (TestSuite testSuite : testSuites) {
+        	log.info("Execute Test Suite ..."+testSuite.getName());
             Map<String, String> testCasesDescriptionsMap = PROJECTS_MAP.get(wsdlProject).get(testSuite.getName());
             for (TestCase testCase : testSuite.getTestCaseList()) {
+            	log.info("Execute Testcase ..."+testCase.getName());
                 if (!isSkippedTestCase(testCase.getName())) {
                     testCaseCounter++;
                     TestCaseRunner testCaseRunner = testCase.run(null, false);
@@ -154,6 +162,7 @@ public class Execute extends ActionSupport {
                             responseContent = wsdlTestRequestStepResult.getResponseContentAsXml();
                         }
                         String[] messages = testStepResult.getMessages();
+
                         for(String message : messages) {
                             messagesList.add(message);
                         }
@@ -164,12 +173,15 @@ public class Execute extends ActionSupport {
                     Object[] testResultData = new Object[] {testSuite.getName(), testCase.getName(), testStatus,
                             testCasesDescriptionsMap.get(testCase.getName()), messagesList, requestContent,
                             responseContent};
+
                     testResults.add(testResultData);
                     status = testCaseCounter + SLASH + numberOfTestCases;
+
                 }
             }
         }
         testResultsJson.put("testResults", testResults);
+
     }
 
     private static boolean isSkippedTestCase(String testCaseName) {
